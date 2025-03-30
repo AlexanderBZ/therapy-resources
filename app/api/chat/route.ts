@@ -1,6 +1,5 @@
 import { createDeepInfra } from "@ai-sdk/deepinfra";
-import { generateText } from "ai";
-import { NextResponse } from "next/server";
+import { streamText } from "ai";
 import {
   therapyResources,
   commonMentalHealthIssues,
@@ -44,43 +43,37 @@ export async function POST(req: Request) {
       content: message.content,
     }));
 
-    const deepinfra = await createDeepInfra({
+    const deepinfra = createDeepInfra({
       apiKey: process.env.DEEPINFRA_API_KEY,
     });
 
-    // Use generateText instead of streamText
-    const { text } = await generateText({
+    // Use streamText to get a proper stream with the AI SDK v4
+    const result = streamText({
       model: deepinfra("meta-llama/Llama-3.3-70B-Instruct"),
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         ...formattedMessages,
       ],
       temperature: 0.7,
-      maxTokens: 800, // Reduced token count to help with timeouts
+      maxTokens: 800,
     });
 
-    console.log("AI response:", text);
-
-    // Return the complete response
-    return NextResponse.json({
-      role: "assistant",
-      content: text,
-    });
+    // Return a streaming response that the useChat hook can process
+    return result.toDataStreamResponse();
   } catch (error) {
     console.error("Error in chat API:", error);
 
-    // Return a more specific error message
-    const errorMessage =
-      error instanceof Error ? error.message : "Unknown error occurred";
-
-    return NextResponse.json(
-      {
+    // Return a properly formatted error response
+    return new Response(
+      JSON.stringify({
         error: "There was an error processing your request",
-        details: errorMessage,
-        fallbackResponse:
-          "I'm sorry, I'm having trouble connecting to my knowledge base right now. Please try again in a moment, or you can explore our resources page for helpful information.",
-      },
-      { status: 500 }
+        details:
+          error instanceof Error ? error.message : "Unknown error occurred",
+      }),
+      {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }
     );
   }
 }
